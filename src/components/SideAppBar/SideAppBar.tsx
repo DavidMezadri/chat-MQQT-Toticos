@@ -1,14 +1,19 @@
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import "./../../index.css";
 import { Drawer } from "@mui/material";
 
 interface SideAppBarProps {
-  open: boolean; // controla se a barra está aberta ou retraída
+  open: boolean; // controla se a barra está aberta
+  buttons: number[]; // lista de IDs para criar botões
+  onSelect: (id: number) => void; // callback quando um botão é clicado
 }
 
-export default function SideAppBar({ open }: SideAppBarProps) {
+export default function SideAppBar({
+  open,
+  buttons,
+  onSelect,
+}: SideAppBarProps) {
   return (
     <Drawer
       variant="permanent"
@@ -20,10 +25,10 @@ export default function SideAppBar({ open }: SideAppBarProps) {
           width: 220,
           top: 80,
           left: open ? 0 : -220,
-          backgroundColor: "var(--background-color-bar)",
+          backgroundColor: "var(--background-accent)",
           color: "white",
           boxSizing: "border-box",
-          borderRadius: "0px 10px 0 ",
+          borderRadius: "0px 10px 0",
         },
       }}
     >
@@ -34,17 +39,19 @@ export default function SideAppBar({ open }: SideAppBarProps) {
       </Box>
 
       <Box sx={{ display: "flex", flexDirection: "column", p: 2, gap: 1 }}>
-        <Button
-          sx={{
-            backgroundColor: "var(--background-color)",
-            boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.3)",
-          }}
-          color="inherit"
-        >
-          9999
-        </Button>
-        <Button color="inherit">9998</Button>
-        <Button color="inherit">9997</Button>
+        {buttons.map((id) => (
+          <Button
+            key={id}
+            sx={{
+              backgroundColor: "var(--background-color)",
+              boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.3)",
+              color: "inherit",
+            }}
+            onClick={() => onSelect(id)}
+          >
+            {id}
+          </Button>
+        ))}
       </Box>
     </Drawer>
   );

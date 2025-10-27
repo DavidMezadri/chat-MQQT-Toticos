@@ -9,9 +9,13 @@ import "./../../index.css";
 
 interface ButtonAppBarProps {
   onMenuClick: () => void;
+  onLoginCLick: () => void;
 }
 
-export default function ButtonAppBar({ onMenuClick }: ButtonAppBarProps) {
+export default function ButtonAppBar({
+  onMenuClick,
+  onLoginCLick,
+}: ButtonAppBarProps) {
   return (
     <Box
       sx={{
@@ -21,7 +25,7 @@ export default function ButtonAppBar({ onMenuClick }: ButtonAppBarProps) {
       <AppBar
         position="static"
         sx={{
-          backgroundColor: "var(--background-color-bar)",
+          backgroundColor: "var(--background-accent)",
         }}
       >
         <Toolbar>
@@ -38,7 +42,9 @@ export default function ButtonAppBar({ onMenuClick }: ButtonAppBarProps) {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             ChatMQTT - Topicos
           </Typography>
-          <Button color="inherit">Login</Button>
+          <Button onClick={onLoginCLick} color="inherit">
+            Login
+          </Button>
         </Toolbar>
       </AppBar>
     </Box>
