@@ -1,26 +1,21 @@
 import React, { useState } from "react";
 
 import { Box, ButtonBase, InputBase } from "@mui/material";
-import type { ChatConversationService } from "../../../service/ChatConversationService";
+
 import "./../../../index.css";
 
 interface ChatInputProps {
   sx?: object;
-  chatConversationService?: ChatConversationService;
+  chatConversationService?: (topic: string, text: string) => void;
+  topic: string;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
   sx,
   chatConversationService,
+  topic,
 }) => {
   const [text, setText] = useState("");
-
-  const handleSend = () => {
-    if (text) {
-      chatConversationService?.sendMessage(text);
-      setText("");
-    }
-  };
 
   return (
     <Box
@@ -52,7 +47,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           width: "100px",
           height: "4vh", // altura fixa ou percentual
         }}
-        onClick={handleSend}
+        onClick={() => {
+          chatConversationService?.(topic, text);
+          setText("");
+        }}
       >
         Enviar
       </ButtonBase>

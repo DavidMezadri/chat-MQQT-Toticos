@@ -89,8 +89,7 @@ export default function Conversation() {
       const conv = conversation.find((c) => c.id === id);
       if (conv) {
         setSelectedConversation(conv);
-        console.log("teste");
-        chatConversationService?.joinChat(conv.id.toString() + "/chat");
+        chatConversationService?.joinChat("/chat");
         console.log(chatConversationService);
       }
       return;
@@ -123,7 +122,7 @@ export default function Conversation() {
     }
     const chatService = new ChatConversationService(entidade);
     setChatConversationService(chatService);
-    chatConversationService?.joinMyTopic(number + "/chat");
+    chatConversationService?.joinChat("/chat");
   }
 
   return (
@@ -152,7 +151,10 @@ export default function Conversation() {
         messages={selectedConversation}
       />{" "}
       <ChatInput
-        chatConversationService={chatConversationService}
+        topic="general"
+        chatConversationService={(text) =>
+          chatConversationService?.sendMessage("general", text)
+        }
         sx={{
           width: positionMenu ? "calc(100 - 240px)" : "100", // diminui quando sidebar aberta
           marginLeft: positionMenu ? "240px" : "100", // empurra à direita
