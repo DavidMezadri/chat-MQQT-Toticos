@@ -4,19 +4,25 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import { Drawer, Popover } from "@mui/material";
 import "./../../App.css";
+import ModalPhoneCentral from "../ModalPhone/ModalPhone";
+import { NewChatService } from "../../service/NewChatService";
+import { formatPhoneBR } from "../../utils/formatDate";
 
 interface SideAppBarProps {
   open: boolean;
   buttons: number[];
   onSelect: (id: number) => void;
+  newChatService: NewChatService | undefined;
 }
 
 export default function SideAppBar({
   open,
   buttons,
   onSelect,
+  newChatService,
 }: SideAppBarProps) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const [popoverTelephoneOpen, setPopoverTelephoneOpen] = useState(false);
 
   const handleOpenPopover = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -25,7 +31,6 @@ export default function SideAppBar({
   const handleClosePopover = () => {
     setAnchorEl(null);
   };
-
   const openPopover = Boolean(anchorEl);
 
   return (
@@ -80,7 +85,7 @@ export default function SideAppBar({
               }}
               onClick={() => onSelect(id)}
             >
-              {id}
+              {formatPhoneBR(id)}
             </Button>
           ))}
         </Box>
@@ -151,14 +156,15 @@ export default function SideAppBar({
               }}
               onClick={() => {
                 handleClosePopover();
-                alert("Nova conversa clicada");
+                setPopoverTelephoneOpen(true);
               }}
             >
               Nova conversa
             </Button>
 
             <Button
-              sx={{
+              sx={
+                {
                 color: "white",
                 justifyContent: "flex-start",
                 "&:hover": { backgroundColor: "rgba(255,255,255,0.1)" },
@@ -173,6 +179,13 @@ export default function SideAppBar({
           </Box>
         </Popover>
       </Box>
+      {popoverTelephoneOpen && (
+      <ModalPhoneCentral
+        open={popoverTelephoneOpen}
+        onClose={() => setPopoverTelephoneOpen(false)}
+        onConfirm={(targetUserId) => newChatService?.sendInvite(targetUserId, newChatService.getUserId())}
+      />
+)}
     </Drawer>
   );
 }

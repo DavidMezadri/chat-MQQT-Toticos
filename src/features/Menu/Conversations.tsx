@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
 import SideAppBar from "../../components/SideAppBar/SideAppBar";
 import ModalPhoneDrawer from "../../components/ModalPhone/ModalPhone";
+import AppTopBar from "../../components/AppTopBar/AppTopBar";
+
 import { ChatWindow } from "../chat/ChatWindown/ChatWindown";
 import { ChatInput } from "../chat/ChatInput/ChatInput";
 import { MqttService } from "../../service/MqttService";
+import { AcceptDialog } from "../../components/AcceptDialog/AcceptDialog";
 import { ChatConversationService } from "../../service/ChatConversationService";
-import AppTopBar from "../../components/AppTopBar/AppTopBar";
+import { NewChatService } from "../../service/NewChatService";
 
 export interface Message {
   TimeStamp: string;
@@ -20,15 +24,37 @@ export interface TypeConversation {
 }
 
 export default function Conversation() {
+  //Setando os serviços
   const [mqttService, setMqttService] = useState<MqttService>();
-  const [chatConversationService, setChatConversationService] =
-    useState<ChatConversationService>();
+  const [newChatService, setNewChatService] = useState<NewChatService>();
+  
   const [positionMenu, setPositionMenu] = useState(false);
   const [visibleModalPhoneDrawer, setVisibleModalPhoneDrawer] = useState(false);
+  const [infoAcceptDialog, setInfoAcceptDialog] = useState({from: "", requestId: "", timestamp: ""});
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const events = newChatService?.pollAllEvents();
+      if (!events) return;
+      for (const ev of events) {
+        if (ev.type === "invite_received") {
+          setInfoAcceptDialog({from: ev.from, requestId: ev.requestId, timestamp: ev.timestamp });
+        }
+
+        if (ev.type === "invite_accepted") {
+        setButtons((prev) => [...prev, ev.acceptedBy]);
+        }
+      }
+      
+    }, 300);
+
+    return () => clearInterval(interval);
+  }, [newChatService]);
+
+  
 
   // IDs dos botões na SideAppBar
-  const [buttons, setButtons] = useState<number[]>([
-    9999999999, 2899294599, 9997,
+  const [buttons, setButtons] = useState<string[]>([
   ]);
 
   // Lista de conversas
@@ -89,8 +115,8 @@ export default function Conversation() {
       const conv = conversation.find((c) => c.id === id);
       if (conv) {
         setSelectedConversation(conv);
-        chatConversationService?.joinChat("/chat");
-        console.log(chatConversationService);
+        ChatConversationService?.joinChat("/chat");
+        console.log(ChatConversationService);
       }
       return;
     }
@@ -109,20 +135,19 @@ export default function Conversation() {
 
   //Aqui vamos setar o número de telefone
   async function setMyNumberTelephone(number: string) {
-    const entidade = new MqttService({
+    const mqttService = new MqttService({
       clientId: number,
       brokerHost: "localhost",
       brokerPort: 9001,
       useSSL: false,
     });
-    await entidade.connect();
-    setMqttService(entidade);
-    if (entidade === undefined) {
+    await mqttService.connect();
+    setMqttService(mqttService);
+    if (mqttService === undefined) {
       return;
     }
-    const chatService = new ChatConversationService(entidade);
-    setChatConversationService(chatService);
-    chatConversationService?.joinChat("/chat");
+    const chatService = new NewChatService(mqttService);
+    setNewChatService(chatService);
   }
 
   return (
@@ -136,11 +161,16 @@ export default function Conversation() {
         onMenuClick={() => setPositionMenu(!positionMenu)}
         onLoginCLick={() => setVisibleModalPhoneDrawer(true)}
       />
+
+
       <SideAppBar
         open={positionMenu}
         buttons={buttons}
         onSelect={(id) => loadConversation(id)}
+        newChatService={newChatService}
       />
+
+
       <ChatWindow
         sx={{
           marginTop: "8px",
@@ -152,14 +182,21 @@ export default function Conversation() {
       />{" "}
       <ChatInput
         topic="general"
-        chatConversationService={(text) =>
-          chatConversationService?.sendMessage("general", text)
-        }
+        chatConversationService={(text) => newChatService?.sendInvite(newChatService.getUserId(), text)}
+        
         sx={{
           width: positionMenu ? "calc(100 - 240px)" : "100", // diminui quando sidebar aberta
           marginLeft: positionMenu ? "240px" : "100", // empurra à direita
           transition: "width 0.3s ease, margin-left 0.3s ease",
         }}
+      />
+      <AcceptDialog
+        invite={infoAcceptDialog ? { from: infoAcceptDialog.from, requestId: infoAcceptDialog.requestId, timestamp: infoAcceptDialog.timestamp } : null}
+        onAccept={() => newChatService?.acceptInvite(infoAcceptDialog.requestId, infoAcceptDialog.from)}
+        onReject={() => newChatService?.rejectInvite(infoAcceptDialog.requestId, infoAcceptDialog.from)}
+        onClose={() => setInfoAcceptDialog({from: "", requestId: "", timestamp: ""})}
+        //INSERIR A FUNÇÃO PARA CRIAR O NOVO CHAT AQUI QUANDO ACEITO - PQ NAO TEMOS EVENTO PARA ACEITAR
+        onNewChat={() => setButtons((prev) => [...prev, infoAcceptDialog.from])}
       />
     </>
   );

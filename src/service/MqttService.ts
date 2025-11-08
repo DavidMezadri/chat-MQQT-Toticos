@@ -147,7 +147,6 @@ export class MqttService {
     this.client.subscribe(topic, {
       qos,
       onSuccess: () => {
-        console.log(`Inscrito no tópico: ${topic}`);
         if (handler) {
           this.addMessageHandler(topic, handler);
         }

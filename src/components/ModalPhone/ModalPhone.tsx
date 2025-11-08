@@ -4,7 +4,7 @@ import { Box, Button, Typography, TextField, Modal } from "@mui/material";
 interface ModalPhoneCentralProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (phone: string) => void;
+  onConfirm?: (phone: string) => void;
 }
 
 export default function ModalPhoneCentral({
@@ -54,7 +54,7 @@ export default function ModalPhoneCentral({
           textAlign="center"
           color="var(--color-text-primary)"
         >
-          Confirme seu telefone
+          Confirme o telefone
         </Typography>
 
         <TextField
