@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Typography } from "@mui/material";
 import type { Message, TypeConversation } from "../../Menu/Conversations";
+import { formatPhoneBR } from "../../../utils/formatDate";
 
 // Componente que renderiza uma mensagem individual
 const MessageItem: React.FC<Message> = ({ TimeStamp, text, author }) => {
@@ -70,19 +71,21 @@ export const ChatWindow: React.FC<{
         variant="h5"
         sx={{ mb: 1, textAlign: "center", width: "100%" }}
       >
-        {messages.name}
+        {formatPhoneBR(messages.id)}
       </Typography>
 
-      {messages.Messages?.filter((msg) => (msg.text ?? "").trim() !== "").map(
-        (msg, idx) => (
+      {messages.messages
+        ?.filter((msg) => (msg.text ?? "").trim() !== "")
+        .map((msg, idx) => (
           <MessageItem
             key={idx}
-            author={msg.author}
+            author={
+              msg.author === "Você" ? msg.author : formatPhoneBR(msg.author)
+            }
             TimeStamp={msg.TimeStamp}
             text={msg.text}
           />
-        )
-      )}
+        ))}
     </Box>
   );
 };
