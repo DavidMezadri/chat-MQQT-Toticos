@@ -54,8 +54,13 @@ export default function Conversation() {
     const interval = setInterval(() => {
       const events = newChatService?.pollAllEvents();
       if (!events) return;
+
       for (const ev of events) {
         if (ev.type === "invite_received") {
+          if (buttons.find((b) => b.id === ev.from)) {
+            alert(`Convite enviado novamente pelo: ${ev.from}`);
+            return;
+          }
           setInfoAcceptDialog({
             from: ev.from,
             requestId: ev.requestId,
@@ -64,11 +69,19 @@ export default function Conversation() {
         }
 
         if (ev.type === "invite_accepted") {
-          setButtons((prev) => [...prev, ev.acceptedBy]);
-          console.log(`${ev.acceptedBy}, TÓPICO: ${ev.chatTopic}`);
+          const accepted = ev as any;
+          setButtons((prev) => [
+            ...prev,
+            { id: accepted.acceptedBy, status: "online" }, // ou qualquer status inicial
+          ]);
+          console.log(`${accepted.acceptedBy}, TÓPICO: ${accepted.chatTopic}`);
           setConversation((prev) => [
             ...prev,
-            { id: ev.acceptedBy, topic: ev.chatTopic, messages: [] },
+            {
+              id: accepted.acceptedBy,
+              topic: accepted.chatTopic,
+              messages: [],
+            },
           ]);
         }
 
@@ -77,25 +90,57 @@ export default function Conversation() {
             (c) => c.id === ev.from
           );
           if (existingConversation) {
-            setConversation((prev) =>
-              prev.map((c) =>
-                c.id === ev.from
+            if (existingConversation) {
+              const newMessage = {
+                author: ev.from,
+                TimeStamp: ev.timestamp,
+                text: ev.content,
+              };
+
+              setConversation((prev) =>
+                prev.map((c) =>
+                  c.id === ev.from
+                    ? { ...c, messages: [...(c.messages ?? []), newMessage] }
+                    : c
+                )
+              );
+
+              // Atualiza a conversa atualmente aberta
+              setSelectedConversation((prev) =>
+                prev && prev.id === ev.from
                   ? {
-                      ...c,
-                      messages: [
-                        ...(c.messages ?? []),
-                        {
-                          author: ev.from,
-                          TimeStamp: ev.timestamp,
-                          text: ev.content,
-                        },
-                      ],
+                      ...prev,
+                      messages: [...(prev.messages ?? []), newMessage],
                     }
-                  : c
+                  : prev
+              );
+            }
+          }
+        }
+
+        if (ev.type === "presence_update") {
+          const userId = ev.userId;
+          const status = ev.status; // online / offline
+
+          // Verifica se existe
+          const exists = buttons.some((btn) => btn.id === userId);
+
+          if (exists) {
+            console.log("👀 Atualizando presença do usuário:", userId);
+
+            setButtons((prev) =>
+              prev.map((btn) =>
+                btn.id === userId
+                  ? { ...btn, status } // ← atualiza só esse
+                  : btn
               )
             );
+          } else {
+            console.log(
+              "🔍 Presence de alguém que não tem conversa aberta:",
+              userId
+            );
           }
-          // Aqui você pode adicionar a lógica para atualizar a conversa com a nova mensagem
         }
       }
     }, 500);
@@ -103,7 +148,7 @@ export default function Conversation() {
   }, [newChatService, conversation.find, conversation]);
 
   // IDs dos botões na SideAppBar
-  const [buttons, setButtons] = useState<string[]>([]);
+  const [buttons, setButtons] = useState<{ id: string; status: string }[]>([]);
 
   // Seleciona ou cria conversa
   function loadConversation(id: string) {
@@ -123,13 +168,16 @@ export default function Conversation() {
       brokerPort: 9001,
       useSSL: false,
     });
-    await mqttService.connect();
     setMqttService(mqttService);
     if (mqttService === undefined) {
       return;
     }
+
     const chatService = new NewChatService(mqttService);
     setNewChatService(chatService);
+
+    await mqttService.connect();
+    await chatService.initialize();
   }
 
   return (
@@ -142,6 +190,7 @@ export default function Conversation() {
       <AppTopBar
         onMenuClick={() => setPositionMenu(!positionMenu)}
         onLoginCLick={() => setVisibleModalPhoneDrawer(true)}
+        onDesconectClick={() => newChatService?.setStatusDisconnect()}
       />
       <SideAppBar
         open={positionMenu}
@@ -160,34 +209,34 @@ export default function Conversation() {
       />{" "}
       <ChatInput
         chatConversationService={(textmsg) => {
-          if (selectedConversation.topic === "") {
+          if (selectedConversation.id == "0") {
             alert("Necessário selecionar uma conversa para enviar");
             return;
           }
-          newChatService?.sendMessage(selectedConversation.topic, textmsg);
 
-          const existingConversation = conversation.find(
-            (c) => c.id === selectedConversation.id
+          const newMessage = {
+            author: "Você",
+            TimeStamp: new Date().toISOString(),
+            text: textmsg,
+          };
+
+          // Atualiza lista de conversas
+          setConversation((prev) =>
+            prev.map((c) =>
+              c.id === selectedConversation.id
+                ? { ...c, messages: [...(c.messages ?? []), newMessage] }
+                : c
+            )
           );
-          if (existingConversation) {
-            setConversation((prev) =>
-              prev.map((c) =>
-                c.id === selectedConversation.id
-                  ? {
-                      ...c,
-                      messages: [
-                        ...(c.messages ?? []),
-                        {
-                          author: "Você",
-                          TimeStamp: new Date().toISOString(),
-                          text: textmsg,
-                        },
-                      ],
-                    }
-                  : c
-              )
-            );
-          }
+
+          // Atualiza também a conversa selecionada (nova referência!)
+          setSelectedConversation((prev) =>
+            prev
+              ? { ...prev, messages: [...(prev.messages ?? []), newMessage] }
+              : prev
+          );
+
+          newChatService?.sendMessage(selectedConversation.topic, textmsg);
         }}
         sx={{
           width: positionMenu ? "calc(100 - 240px)" : "100", // diminui quando sidebar aberta
@@ -228,7 +277,13 @@ export default function Conversation() {
         }
         //INSERIR A FUNÇÃO PARA CRIAR O NOVO CHAT AQUI QUANDO ACEITO - PQ NAO TEMOS EVENTO PARA ACEITAR
         onNewChat={() => {
-          setButtons((prev) => [...prev, infoAcceptDialog.from]);
+          setButtons((prev) => [
+            ...prev,
+            {
+              id: infoAcceptDialog.from,
+              status: "online", // ou "offline" se preferir
+            },
+          ]);
         }}
       />
     </>

@@ -10,7 +10,7 @@ import ModalPhoneCentral from "../ModalPhone/ModalPhone";
 
 interface SideAppBarProps {
   open: boolean;
-  buttons: string[];
+  buttons: { id: string; status: string }[];
   onSelect: (id: string) => void;
   newChatService: NewChatService | undefined;
 }
@@ -74,18 +74,20 @@ export default function SideAppBar({
 
         {/* Lista de botões/itens (essa área rola se necessário) */}
         <Box sx={{ display: "flex", flexDirection: "column", p: 2, gap: 1 }}>
-          {buttons.map((id) => (
+          {buttons.map((btn) => (
             <Button
-              key={id}
+              key={btn.id}
               sx={{
                 backgroundColor: "var(--color-button-bg)",
                 boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.3)",
                 color: "inherit",
                 justifyContent: "center",
               }}
-              onClick={() => onSelect(id)}
+              onClick={() => onSelect(btn.id)}
             >
-              {formatPhoneBR(id)}
+              {`${formatPhoneBR(btn.id)} ${
+                btn.status === "online" ? "🟢" : "🔴"
+              }`}
             </Button>
           ))}
         </Box>
@@ -163,12 +165,11 @@ export default function SideAppBar({
             </Button>
 
             <Button
-              sx={
-                {
-                  color: "white",
-                  justifyContent: "flex-start",
-                  "&:hover": { backgroundColor: "rgba(255,255,255,0.1)" },
-                }}
+              sx={{
+                color: "white",
+                justifyContent: "flex-start",
+                "&:hover": { backgroundColor: "rgba(255,255,255,0.1)" },
+              }}
               onClick={() => {
                 handleClosePopover();
                 alert("Novo grupo clicado");
@@ -183,7 +184,16 @@ export default function SideAppBar({
         <ModalPhoneCentral
           open={popoverTelephoneOpen}
           onClose={() => setPopoverTelephoneOpen(false)}
-          onConfirm={(targetUserId) => newChatService?.sendInvite(targetUserId, newChatService.getUserId())}
+          onConfirm={(targetUserId) => {
+            if (buttons.find((b) => b.id === targetUserId)) {
+              alert(`Conversa já estabelecida com: ${targetUserId}`);
+              return;
+            }
+            newChatService?.sendInvite(
+              targetUserId,
+              newChatService.getUserId()
+            );
+          }}
         />
       )}
     </Drawer>

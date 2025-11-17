@@ -35,10 +35,13 @@ export class MqttService {
   private isConnected: boolean = false;
   private shouldReconnect: boolean = false;
 
+  // ✨ NOVO: Handler global para capturar TODAS as mensagens
+  private globalMessageHandler: MessageHandler | null = null;
+
   constructor(config: MqttConfig) {
     this.config = {
       brokerPath: "/",
-      cleanSession: true,
+      cleanSession: false,
       keepAliveInterval: 60,
       timeout: 10,
       reconnect: true,
@@ -77,13 +80,14 @@ export class MqttService {
       const topic = message.destinationName;
       const payload = message.payloadString;
 
-      // Notifica handlers específicos do tópico
+      // ✨ NOVO: Primeiro, chama o handler global (se existir)
+      if (this.globalMessageHandler) {
+        this.globalMessageHandler(topic, payload);
+      }
+
+      // Depois, notifica handlers específicos do tópico
       const handlers = this.messageHandlers.get(topic) || [];
       handlers.forEach((handler) => handler(topic, payload));
-
-      // Notifica handlers wildcard
-      const wildcardHandlers = this.messageHandlers.get("*") || [];
-      wildcardHandlers.forEach((handler) => handler(topic, payload));
     };
   }
 
@@ -115,7 +119,6 @@ export class MqttService {
       if (this.config.password) {
         connectOptions.password = this.config.password;
       }
-
       this.client.connect(connectOptions);
     });
   }
@@ -207,6 +210,11 @@ export class MqttService {
 
   removeMessageHandlers(topic: string): void {
     this.messageHandlers.delete(topic);
+  }
+
+  // ✨ NOVO: Define um handler global que recebe TODAS as mensagens
+  setGlobalMessageHandler(handler: MessageHandler | null): void {
+    this.globalMessageHandler = handler;
   }
 
   onConnectionStatusChange(handler: ConnectionStatusHandler): () => void {

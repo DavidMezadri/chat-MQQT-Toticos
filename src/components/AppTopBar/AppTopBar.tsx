@@ -10,11 +10,13 @@ import "./../../index.css";
 interface AppTopBarProps {
   onMenuClick: () => void;
   onLoginCLick: () => void;
+  onDesconectClick: () => void;
 }
 
 export default function AppTopBar({
   onMenuClick,
   onLoginCLick,
+  onDesconectClick,
 }: AppTopBarProps) {
   return (
     <Box
@@ -40,8 +42,11 @@ export default function AppTopBar({
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            ChatMQTT - Topicos
+            TopicZap
           </Typography>
+          <Button onClick={onDesconectClick} color="inherit">
+            Desconectar
+          </Button>
           <Button onClick={onLoginCLick} color="inherit">
             Login
           </Button>

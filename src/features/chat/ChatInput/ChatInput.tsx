@@ -1,6 +1,6 @@
 import { Box, ButtonBase, InputBase } from "@mui/material";
 import type React from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import "./../../../index.css";
 
@@ -14,6 +14,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   chatConversationService,
 }) => {
   const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null!);
+
+  const handleSend = () => {
+    chatConversationService?.(text);
+    setText("");
+
+    inputRef.current?.focus();
+  };
 
   return (
     <Box
@@ -25,6 +33,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       }}
     >
       <InputBase
+        inputRef={inputRef}
         sx={{
           fontSize: "30px",
           borderRadius: 1,
@@ -36,6 +45,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Digite sua mensagem"
+        inputProps={{
+          onKeyDown: (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          },
+        }}
       />
       <ButtonBase
         sx={{
@@ -46,8 +63,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           height: "4vh", // altura fixa ou percentual
         }}
         onClick={() => {
-          chatConversationService?.(text);
-          setText("");
+          handleSend();
         }}
       >
         Enviar

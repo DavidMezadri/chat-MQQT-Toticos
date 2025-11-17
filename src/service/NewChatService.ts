@@ -1,448 +1,510 @@
 import type { MqttService } from "./MqttService";
 
 // ============================================================================
-// MENSAGENS DE CONTROLE (Convites)
+// MENSAGENS DE CONTROLE (Classificação de HAndlers)
 // ============================================================================
 
 export interface InviteRequest {
-	type: "invite";
-	from: string;
-	requestId: string;
-	timestamp: string;
+  type: "invite_received";
+  from: string;
+  requestId: string;
+  timestamp: string;
 }
 
 export interface InviteAccept {
-	type: "accept";
-	from: string;
-	to: string;
-	chatTopic: string;
-	requestId: string;
-	timestamp: string;
+  type: "invite_accepted";
+  from: string;
+  to: string;
+  chatTopic: string;
+  requestId: string;
+  timestamp: string;
 }
 
 export interface InviteReject {
-	type: "reject";
-	from: string;
-	to: string;
-	requestId: string;
-	timestamp: string;
+  type: "invite_rejected";
+  from: string;
+  to: string;
+  requestId: string;
+  timestamp: string;
+}
+
+export interface ChatMessage {
+  type: "message";
+  from: string;
+  content: string;
+  messageId: string;
+  chatTopic: string;
+  timestamp: string;
 }
 
 export type ControlMessage = InviteRequest | InviteAccept | InviteReject;
-
-// ============================================================================
-// MENSAGENS DE CHAT
-// ============================================================================
-
-export interface ChatMessage {
-	type: "message";
-	from: string;
-	content: string;
-	messageId: string;
-	timestamp: string;
-}
 
 // ============================================================================
 // EVENTOS DO SERVIÇO
 // ============================================================================
 
 export interface InviteReceivedEvent {
-	type: "invite_received";
-	from: string;
-	requestId: string;
-	timestamp: string;
+  type: "invite_received";
+  from: string;
+  requestId: string;
+  timestamp: string;
 }
 
 export interface InviteAcceptedEvent {
-	type: "invite_accepted";
-	acceptedBy: string;
-	chatTopic: string;
-	requestId: string;
-	timestamp: string;
+  type: "invite_accepted";
+  acceptedBy: string;
+  chatTopic: string;
+  requestId: string;
+  timestamp: string;
 }
 
 export interface InviteRejectedEvent {
-	type: "invite_rejected";
-	rejectedBy: string;
-	requestId: string;
-	timestamp: string;
+  type: "invite_rejected";
+  rejectedBy: string;
+  requestId: string;
+  timestamp: string;
 }
 
 export interface MessageReceivedEvent {
-	type: "message_received";
-	from: string;
-	content: string;
-	messageId: string;
-	chatTopic: string;
-	timestamp: string;
+  type: "message_received";
+  from: string;
+  content: string;
+  messageId: string;
+  chatTopic: string;
+  timestamp: string;
 }
 
 export interface ChatSubscribedEvent {
-	type: "chat_subscribed";
-	chatTopic: string;
-	timestamp: string;
+  type: "chat_subscribed";
+  chatTopic: string;
+  timestamp: string;
+}
+
+export interface PresenceUpdateEvent {
+  type: "presence_update";
+  userId: string;
+  status: "online" | "offline";
+  timestamp: string;
 }
 
 export interface ErrorEvent {
-	type: "error";
-	error: string;
-	context?: any;
-	timestamp: string;
+  type: "error";
+  error: string;
+  context?: any;
+  timestamp: string;
 }
 
 export type ChatServiceEvent =
-	| InviteReceivedEvent
-	| InviteAcceptedEvent
-	| InviteRejectedEvent
-	| MessageReceivedEvent
-	| ChatSubscribedEvent
-	| ErrorEvent
-	| InviteAccept;
+  | InviteReceivedEvent
+  | InviteAcceptedEvent
+  | InviteRejectedEvent
+  | MessageReceivedEvent
+  | InviteAccept
+  | ChatSubscribedEvent
+  | PresenceUpdateEvent
+  | ErrorEvent;
 
 // ============================================================================
 // SERVIÇO PRINCIPAL
 // ============================================================================
 
 export class NewChatService {
-	private mqttService: MqttService;
-	private userId: string;
-	private controlTopic: string;
+  private mqttService: MqttService;
+  private userId: string;
+  private controlTopic: string;
+  private presenceTopic: string;
+  private presenceTopicOthers: string;
+  // Fila de eventos
+  private eventQueue: ChatServiceEvent[] = [];
 
-	// Fila de eventos
-	private eventQueue: ChatServiceEvent[] = [];
+  constructor(mqttService: MqttService) {
+    this.mqttService = mqttService;
+    this.userId = mqttService.getClientId();
+    this.controlTopic = `control/${this.userId}`;
+    this.presenceTopic = `presence/${this.userId}`;
+    this.presenceTopicOthers = `presence/#`;
 
-	// Chats ativos (tópicos em que estou inscrito)
-	private activeChats: Set<string> = new Set();
+    this.setupPresenceListener();
+  }
 
-	constructor(mqttService: MqttService) {
-		this.mqttService = mqttService;
-		this.userId = mqttService.getClientId();
-		this.controlTopic = `control/${this.userId}`;
+  // ==========================================================================
+  // SETUP INICIAL
+  // ==========================================================================
 
-		this.setupControlChannel();
-	}
+  async initialize() {
+    this.setupControlChannel();
+    this.setOnlineStatus();
+  }
 
-	// ==========================================================================
-	// SETUP INICIAL
-	// ==========================================================================
+  private setupControlChannel(): void {
+    this.mqttService.subscribe(
+      this.controlTopic,
+      (_topic, payload) => {
+        try {
+          const message: ControlMessage = JSON.parse(payload);
+          this.handleControlMessage(message);
+        } catch (error) {
+          this.pushEvent({
+            type: "error",
+            error: "Erro ao processar mensagem de controle",
+            context: { payload, error },
+            timestamp: new Date().toISOString(),
+          });
+        }
+      },
+      1
+    );
 
-	private setupControlChannel(): void {
-		this.mqttService.subscribe(this.controlTopic, (_topic, payload) => {
-			try {
-				const message: ControlMessage = JSON.parse(payload);
-				this.handleControlMessage(message);
-			} catch (error) {
-				this.pushEvent({
-					type: "error",
-					error: "Erro ao processar mensagem de controle",
-					context: { payload, error },
-					timestamp: new Date().toISOString(),
-				});
-			}
-		});
+    console.log(`🎧 [${this.userId}] Canal de controle: ${this.controlTopic}`);
+  }
 
-		console.log(`🎧 [${this.userId}] Canal de controle: ${this.controlTopic}`);
-	}
+  // ==========================================================================
+  // Publicação de Status
+  // ==========================================================================
 
-	// ==========================================================================
-	// PROCESSAMENTO DE MENSAGENS DE CONTROLE
-	// ==========================================================================
+  private setOnlineStatus(): void {
+    const presenceMessage = {
+      userId: this.userId,
+      status: "online",
+      timestamp: new Date().toISOString(),
+    };
 
-	private handleControlMessage(message: ControlMessage): void {
-		switch (message.type) {
-			case "invite":
-				this.handleInviteReceived(message);
-				break;
-			case "accept":
-				this.handleInviteAccepted(message);
-				break;
-			case "reject":
-				this.handleInviteRejected(message);
-				break;
-		}
-	}
+    // retain: true = mantém o último estado no broker
+    this.mqttService.publish(this.presenceTopic, presenceMessage, 1, true);
 
-	private handleInviteReceived(message: InviteRequest): void {
-		console.log(`📨 [${this.userId}] Convite recebido de ${message.from}`);
+    console.log(`👤 [${this.userId}] Status: ONLINE`);
+  }
 
-		this.pushEvent({
-			type: "invite_received",
-			from: message.from,
-			requestId: message.requestId,
-			timestamp: message.timestamp,
-		});
-	}
+  private setOfflineStatus(): void {
+    const presenceMessage = {
+      userId: this.userId,
+      status: "offline",
+      timestamp: new Date().toISOString(),
+    };
 
-	private handleInviteAccepted(message: InviteAccept): void {
-		message.chatTopic = this.createChatTopic(message.from, this.userId);
-		console.log(`✅ [${this.userId}] Convite aceito por ${message.from}`);
-		console.log(`📍 [${this.userId}] Novo chat: ${message.chatTopic}`);
+    // retain: true = Atualiza última mensagem no broker
+    this.mqttService.publish(this.presenceTopic, presenceMessage, 1, true);
 
-		// Automaticamente se inscreve no novo chat
-		this.subscribeToChatTopic(message.chatTopic);
+    console.log(`👤 [${this.userId}] Status: OFFLINE`);
+  }
 
-		this.pushEvent({
-			type: "invite_accepted",
-			acceptedBy: message.from,
-			chatTopic: message.chatTopic,
-			requestId: message.requestId,
-			timestamp: message.timestamp,
-		});
-	}
+  //✅ Marca como offline
 
-	private handleInviteRejected(message: InviteReject): void {
-		console.log(`❌ [${this.userId}] Convite rejeitado por ${message.from}`);
+  setStatusDisconnect(): void {
+    this.setOfflineStatus();
+    // ... resto do código de desconexão
+  }
 
-		this.pushEvent({
-			type: "invite_rejected",
-			rejectedBy: message.from,
-			requestId: message.requestId,
-			timestamp: message.timestamp,
-		});
-	}
+  //✅ Marca como online
 
-	// ==========================================================================
-	// ENVIO DE CONVITES
-	// ==========================================================================
+  setStatusConnect(): void {
+    this.setOfflineStatus();
+    // ... resto do código de desconexão
+  }
 
-	/**
-	 * Envia convite para outro usuário
-	 * O convite é enviado para o tópico de controle padrão do destinatário
-	 */
-	sendInvite(targetUserId: string, userId = this.userId): string {
-		const requestId = `invite_${Date.now()}_${Math.random()
-			.toString(36)
-			.substring(2, 9)}`;
+  // ==========================================================================
+  // Listener para presence
+  // ==========================================================================
 
-		const inviteMessage: InviteRequest = {
-			type: "invite",
-			from: userId,
-			requestId,
-			timestamp: new Date().toISOString(),
-		};
+  private setupPresenceListener(): void {
+    this.mqttService.setGlobalMessageHandler((topic, payload) => {
+      // Captura TODAS as mensagens de presença
+      if (topic.startsWith("presence/")) {
+        try {
+          const presence = JSON.parse(payload);
+          console.log("AMEMMM", presence);
+          this.eventQueue.push({
+            type: "presence_update",
+            userId: presence.userId,
+            status: presence.status,
+            timestamp: presence.timestamp,
+          });
+        } catch (error) {
+          this.eventQueue.push({
+            type: "error",
+            error: "Erro ao processar presença",
+            context: { topic, payload, error },
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    });
 
-		// Envia para tópico padrão do destinatário
-		const targetControlTopic = `control/${targetUserId}`;
-		this.mqttService.publish(targetControlTopic, inviteMessage);
+    console.log(`📡 [${this.userId}] Monitorando presença: presence/#`);
+  }
 
-		console.log(`📤 [${this.userId}] Convite enviado para ${targetUserId}`);
-		console.log(`🆔 Request ID: ${requestId}`);
+  // ==========================================================================
+  // PROCESSAMENTO DE MENSAGENS DE CONTROLE
+  // ==========================================================================
 
-		return requestId;
-	}
+  private handleControlMessage(message: ControlMessage | ChatMessage): void {
+    console.log("Tipo da Mensagem no HANDLER", message.type);
+    switch (message.type) {
+      case "invite_received":
+        this.handleInviteReceived(message);
+        break;
+      case "invite_accepted":
+        this.handleInviteAccepted(message);
+        break;
+      case "invite_rejected":
+        this.handleInviteRejected(message);
+        break;
+      case "message":
+        this.handleChatMessage(message);
+        break;
+      default:
+        this.pushEvent({
+          type: "error",
+          error: "Mensagem desconhecida",
+          context: { message },
+          timestamp: new Date().toISOString(),
+        });
+        break;
+    }
+  }
 
-	// ==========================================================================
-	// RESPOSTA A CONVITES
-	// ==========================================================================
+  private handleInviteReceived(message: InviteRequest): void {
+    console.log(`📨 [${this.userId}] Convite recebido de ${message.from}`);
 
-	/**
-	 * Aceita um convite recebido
-	 * Cria um novo tópico de chat e envia a resposta para o remetente original
-	 * Retorna o tópico criado
-	 */
-	acceptInvite(requestId: string, fromUserId: string): string {
-		// Cria tópico único para o chat
-		const chatTopic = this.createChatTopic(fromUserId, this.userId);
+    this.pushEvent({
+      type: "invite_received",
+      from: message.from,
+      requestId: message.requestId,
+      timestamp: message.timestamp,
+    });
+  }
 
-		const acceptMessage: InviteAccept = {
-			type: "accept",
-			from: this.userId,
-			to: fromUserId,
-			chatTopic,
-			requestId,
-			timestamp: new Date().toISOString(),
-		};
+  private handleInviteAccepted(message: InviteAccept): void {
+    message.chatTopic = this.createChatTopic(message.from, this.userId);
+    console.log(`✅ [${this.userId}] Convite aceito por ${message.from}`);
+    console.log(`📍 [${this.userId}] Novo chat: ${message.chatTopic}`);
 
-		// Envia aceite para o tópico de controle do remetente original
-		const targetControlTopic = `control/${fromUserId}`;
-		this.mqttService.publish(targetControlTopic, acceptMessage);
+    // Automaticamente se inscreve no novo chat
+    this.subscribeToChatTopic(message.chatTopic);
 
-		console.log(`✅ [${this.userId}] Convite aceito!`);
-		console.log(`📍 [${this.userId}] Chat criado: ${chatTopic}`);
+    this.pushEvent({
+      type: "invite_accepted",
+      acceptedBy: message.from,
+      chatTopic: message.chatTopic,
+      requestId: message.requestId,
+      timestamp: message.timestamp,
+    });
+  }
 
-		return chatTopic;
-	}
+  private handleInviteRejected(message: InviteReject): void {
+    console.log(`❌ [${this.userId}] Convite rejeitado por ${message.from}`);
 
-	/**
-	 * Rejeita um convite recebido
-	 * Envia a resposta para o remetente original
-	 */
-	rejectInvite(requestId: string, fromUserId: string): void {
-		const rejectMessage: InviteReject = {
-			type: "reject",
-			from: this.userId,
-			to: fromUserId,
-			requestId,
-			timestamp: new Date().toISOString(),
-		};
+    this.pushEvent({
+      type: "invite_rejected",
+      rejectedBy: message.from,
+      requestId: message.requestId,
+      timestamp: message.timestamp,
+    });
+  }
 
-		// Envia rejeição para o tópico de controle do remetente original
-		const targetControlTopic = `control/${fromUserId}`;
-		this.mqttService.publish(targetControlTopic, rejectMessage);
+  // ==========================================================================
+  // ENVIO DE CONVITES
+  // ==========================================================================
 
-		console.log(`❌ [${this.userId}] Convite rejeitado`);
-	}
+  /**
+   * Envia convite para outro usuário
+   * O convite é enviado para o tópico de controle padrão do destinatário
+   */
+  sendInvite(targetUserId: string, userId = this.userId): string {
+    const requestId = `invite_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 9)}`;
 
-	// ==========================================================================
-	// GERENCIAMENTO DE CHATS
-	// ==========================================================================
+    const inviteMessage: InviteRequest = {
+      type: "invite_received",
+      from: userId,
+      requestId,
+      timestamp: new Date().toISOString(),
+    };
 
-	/**
-	 * Se inscreve em um tópico de chat para receber mensagens
-	 */
-	subscribeToChatTopic(chatTopic: string): void {
-		if (this.activeChats.has(chatTopic)) {
-			console.log(`⚠️ [${this.userId}] Já inscrito em ${chatTopic}`);
-			return;
-		}
+    // Envia para tópico padrão do destinatário
+    const targetControlTopic = `control/${targetUserId}`;
+    this.mqttService.publish(targetControlTopic, inviteMessage, 1);
 
-		this.mqttService.subscribe(chatTopic, (_topic, payload) => {
-			try {
-				const message: ChatMessage = JSON.parse(payload);
-				this.handleChatMessage(message, chatTopic);
-			} catch (error) {
-				this.pushEvent({
-					type: "error",
-					error: "Erro ao processar mensagem de chat",
-					context: { chatTopic, payload, error },
-					timestamp: new Date().toISOString(),
-				});
-			}
-		});
+    console.log(
+      `📤 [${this.userId}] Convite enviado para com QOS 1 ${targetUserId}`
+    );
+    console.log(`🆔 Request ID: ${requestId}`);
 
-		this.activeChats.add(chatTopic);
+    return requestId;
+  }
 
-		this.pushEvent({
-			type: "chat_subscribed",
-			chatTopic,
-			timestamp: new Date().toISOString(),
-		});
+  // ==========================================================================
+  // RESPOSTA A CONVITES
+  // ==========================================================================
 
-		console.log(`🔔 [${this.userId}] Inscrito no chat: ${chatTopic}`);
-	}
+  /**
+   * Aceita um convite recebido
+   * Cria um novo tópico de chat e envia a resposta para o remetente original
+   * Retorna o tópico criado
+   */
+  acceptInvite(requestId: string, fromUserId: string): string {
+    // Cria tópico único para o chat
+    const chatTopic = this.createChatTopic(fromUserId, this.userId);
 
-	/**
-	 * Processa mensagem recebida em um chat
-	 */
-	private handleChatMessage(message: ChatMessage, chatTopic: string): void {
-		// Ignora mensagens enviadas por mim mesmo
-		if (message.from === this.userId) {
-			return;
-		}
+    const acceptMessage: InviteAccept = {
+      type: "invite_accepted",
+      from: this.userId,
+      to: fromUserId,
+      chatTopic,
+      requestId,
+      timestamp: new Date().toISOString(),
+    };
 
-		console.log(
-			`💬 [${this.userId}] Mensagem de ${message.from}: ${message.content}`,
-		);
+    // Envia aceite para o tópico de controle do remetente original
+    const targetControlTopic = `control/${fromUserId}`;
+    this.mqttService.publish(targetControlTopic, acceptMessage);
 
-		this.pushEvent({
-			type: "message_received",
-			from: message.from,
-			content: message.content,
-			messageId: message.messageId,
-			chatTopic,
-			timestamp: message.timestamp,
-		});
-	}
+    console.log(`✅ [${this.userId}] Convite aceito!`);
+    console.log(`📍 [${this.userId}] Chat criado: ${chatTopic}`);
 
-	// ==========================================================================
-	// ENVIO DE MENSAGENS
-	// ==========================================================================
+    return chatTopic;
+  }
 
-	/**
-	 * Envia mensagem para um chat específico
-	 */
-	sendMessage(chatTopic: string, content: string): string {
-		const messageId = `msg_${Date.now()}_${Math.random()
-			.toString(36)
-			.substring(2, 9)}`;
+  /**
+   * Rejeita um convite recebido
+   * Envia a resposta para o remetente original
+   */
+  rejectInvite(requestId: string, fromUserId: string): void {
+    const rejectMessage: InviteReject = {
+      type: "invite_rejected",
+      from: this.userId,
+      to: fromUserId,
+      requestId,
+      timestamp: new Date().toISOString(),
+    };
 
-		const message: ChatMessage = {
-			type: "message",
-			from: this.userId,
-			content,
-			messageId,
-			timestamp: new Date().toISOString(),
-		};
+    // Envia rejeição para o tópico de controle do remetente original
+    const targetControlTopic = `control/${fromUserId}`;
+    this.mqttService.publish(targetControlTopic, rejectMessage);
 
-		this.mqttService.publish(chatTopic, message);
+    console.log(`❌ [${this.userId}] Convite rejeitado`);
+  }
 
-		console.log(`📨 [${this.userId}] Mensagem enviada para ${chatTopic}`);
+  // ==========================================================================
+  // GERENCIAMENTO DE CHATS
+  // ==========================================================================
 
-		return messageId;
-	}
+  /**
+   * Se inscreve em um tópico de chat para receber mensagens
+   */
+  subscribeToChatTopic(chatTopic: string): void {
+    this.mqttService.subscribe(chatTopic, (_topic, payload) => {
+      try {
+        const message: ChatMessage = JSON.parse(payload);
+        this.handleChatMessage(message);
+      } catch (error) {
+        this.pushEvent({
+          type: "error",
+          error: "Erro ao processar mensagem de chat",
+          context: { chatTopic, payload, error },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
 
-	// ==========================================================================
-	// UTILITÁRIOS
-	// ==========================================================================
+    this.pushEvent({
+      type: "chat_subscribed",
+      chatTopic,
+      timestamp: new Date().toISOString(),
+    });
 
-	/**
-	 * Cria tópico único para conversa entre dois usuários
-	 * Ordena os IDs para garantir o mesmo tópico independente de quem convida
-	 */
-	private createChatTopic(user1: string, user2: string): string {
-		const sortedUsers = [user1, user2].sort();
-		return `chat/${sortedUsers[0]}_${sortedUsers[1]}`;
-	}
+    console.log(`🔔 [${this.userId}] Inscrito no chat: ${chatTopic}`);
+  }
 
-	/**
-	 * Adiciona evento à fila
-	 */
-	private pushEvent(event: ChatServiceEvent): void {
-		this.eventQueue.push(event);
-	}
+  /*
+   * Processa mensagem recebida em um chat
+   */
+  private handleChatMessage(message: ChatMessage): void {
+    // Ignora mensagens enviadas por mim mesmo
+    if (message.from === this.userId) {
+      return;
+    }
 
-	// ==========================================================================
-	// API DE EVENTOS
-	// ==========================================================================
+    console.log(
+      `💬 [${this.userId}] Mensagem de ${message.from}: ${message.content}`
+    );
 
-	/**
-	 * Retorna e remove o próximo evento da fila
-	 */
-	pollEvent(): ChatServiceEvent | null {
-		return this.eventQueue.shift() || null;
-	}
+    this.pushEvent({
+      type: "message_received",
+      from: message.from,
+      content: message.content,
+      messageId: message.messageId,
+      chatTopic: message.chatTopic,
+      timestamp: message.timestamp,
+    });
+  }
 
-	/**
-	 * Retorna todos os eventos pendentes e limpa a fila
-	 */
-	pollAllEvents(): ChatServiceEvent[] {
-		const events = [...this.eventQueue];
-		this.eventQueue = [];
-		return events;
-	}
+  // ==========================================================================
+  // ENVIO DE MENSAGENS
+  // ==========================================================================
 
-	/**
-	 * Retorna o próximo evento sem removê-lo da fila
-	 */
-	peekEvent(): ChatServiceEvent | null {
-		return this.eventQueue[0] || null;
-	}
+  /*
+   * Envia mensagem para um chat específico
+   */
+  sendMessage(chatTopic: string, content: string): string {
+    const messageId = `msg_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 9)}`;
 
-	/**
-	 * Verifica se há eventos pendentes
-	 */
-	hasEvents(): boolean {
-		return this.eventQueue.length > 0;
-	}
+    const message: ChatMessage = {
+      type: "message",
+      from: this.userId,
+      content,
+      messageId,
+      chatTopic: chatTopic,
+      timestamp: new Date().toISOString(),
+    };
 
-	/**
-	 * Retorna o número de eventos pendentes
-	 */
-	getEventCount(): number {
-		return this.eventQueue.length;
-	}
+    this.mqttService.publish(chatTopic, message);
 
-	/**
-	 * Retorna lista de chats ativos
-	 */
-	getActiveChats(): string[] {
-		return Array.from(this.activeChats);
-	}
+    console.log(`📨 [${this.userId}] Mensagem enviada para ${chatTopic}`);
 
-	/**
-	 * Retorna seu ID de usuário
-	 */
-	getUserId(): string {
-		return this.userId;
-	}
+    return messageId;
+  }
+
+  // ==========================================================================
+  // UTILITÁRIOS
+  // ==========================================================================
+
+  /**
+   * Cria tópico único para conversa entre dois usuários
+   * Ordena os IDs para garantir o mesmo tópico independente de quem convida
+   */
+  private createChatTopic(user1: string, user2: string): string {
+    const sortedUsers = [user1, user2].sort();
+    return `chat/${sortedUsers[0]}_${sortedUsers[1]}`;
+  }
+
+  /**
+   * Adiciona evento à fila
+   */
+  private pushEvent(event: ChatServiceEvent): void {
+    this.eventQueue.push(event);
+  }
+
+  // ==========================================================================
+  // API DE EVENTOS
+  // ==========================================================================
+
+  /**
+   * Retorna seu ID de usuário
+   */
+  getUserId(): string {
+    return this.userId;
+  }
+
+  /**
+   * Retorna todos os eventos pendentes e limpa a fila
+   */
+  pollAllEvents(): ChatServiceEvent[] {
+    const events = [...this.eventQueue];
+    this.eventQueue = [];
+    return events;
+  }
 }
