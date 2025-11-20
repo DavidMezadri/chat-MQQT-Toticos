@@ -74,22 +74,24 @@ export default function SideAppBar({
 
         {/* Lista de botões/itens (essa área rola se necessário) */}
         <Box sx={{ display: "flex", flexDirection: "column", p: 2, gap: 1 }}>
-          {buttons.map((btn) => (
-            <Button
-              key={btn.id}
-              sx={{
-                backgroundColor: "var(--color-button-bg)",
-                boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.3)",
-                color: "inherit",
-                justifyContent: "center",
-              }}
-              onClick={() => onSelect(btn.id)}
-            >
-              {`${formatPhoneBR(btn.id)} ${
-                btn.status === "online" ? "🟢" : "🔴"
-              }`}
-            </Button>
-          ))}
+          {buttons
+            .filter((btn) => btn.id !== "" && btn.id !== "0") //FILTRA VAZIO E 0
+            .map((btn) => (
+              <Button
+                key={btn.id}
+                sx={{
+                  backgroundColor: "var(--color-button-bg)",
+                  boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.3)",
+                  color: "inherit",
+                  justifyContent: "center",
+                }}
+                onClick={() => onSelect(btn.id)}
+              >
+                {`${formatPhoneBR(btn.id)} ${
+                  btn.status === "online" ? "🟢" : "🔴"
+                }`}
+              </Button>
+            ))}
         </Box>
       </Box>
 

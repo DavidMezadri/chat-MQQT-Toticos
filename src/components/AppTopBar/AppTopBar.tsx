@@ -11,12 +11,14 @@ interface AppTopBarProps {
   onMenuClick: () => void;
   onLoginCLick: () => void;
   onDesconectClick: () => void;
+  onCleanCLick: () => void;
 }
 
 export default function AppTopBar({
   onMenuClick,
   onLoginCLick,
   onDesconectClick,
+  onCleanCLick,
 }: AppTopBarProps) {
   return (
     <Box
@@ -44,6 +46,9 @@ export default function AppTopBar({
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             TopicZap
           </Typography>
+          <Button onClick={onCleanCLick} color="inherit">
+            Limpar
+          </Button>
           <Button onClick={onDesconectClick} color="inherit">
             Desconectar
           </Button>

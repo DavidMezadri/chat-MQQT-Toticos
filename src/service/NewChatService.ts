@@ -87,6 +87,16 @@ export interface PresenceUpdateEvent {
   timestamp: string;
 }
 
+export interface LoadConversations {
+  type: "load_conversation";
+  conversations: {
+    userId: string;
+    topic: string;
+    chatIndividual: boolean;
+    timestamp: string;
+  }[];
+}
+
 export interface ErrorEvent {
   type: "error";
   error: string;
@@ -102,6 +112,7 @@ export type ChatServiceEvent =
   | InviteAccept
   | ChatSubscribedEvent
   | PresenceUpdateEvent
+  | LoadConversations
   | ErrorEvent;
 
 // ============================================================================
@@ -114,6 +125,7 @@ export class NewChatService {
   private controlTopic: string;
   private presenceTopic: string;
   private presenceTopicOthers: string;
+  private loadConversation: string;
   // Fila de eventos
   private eventQueue: ChatServiceEvent[] = [];
 
@@ -122,7 +134,8 @@ export class NewChatService {
     this.userId = mqttService.getClientId();
     this.controlTopic = `control/${this.userId}`;
     this.presenceTopic = `presence/${this.userId}`;
-    this.presenceTopicOthers = `presence/#`;
+    this.presenceTopicOthers = `presence`;
+    this.loadConversation = `control/loadconversation/${this.userId}`;
 
     this.setupPresenceListener();
   }
@@ -132,6 +145,7 @@ export class NewChatService {
   // ==========================================================================
 
   async initialize() {
+    this.loadConversations();
     this.setupControlChannel();
     this.setOnlineStatus();
   }
@@ -158,6 +172,13 @@ export class NewChatService {
     console.log(`🎧 [${this.userId}] Canal de controle: ${this.controlTopic}`);
   }
 
+  private loadConversations(): void {
+    // retain: true = mantém o último estado no broker
+    this.mqttService.subscribe(this.loadConversation, () => {}, 1);
+
+    console.log(`👤 [${this.userId}] Carregar Conversas`);
+  }
+
   // ==========================================================================
   // Publicação de Status
   // ==========================================================================
@@ -171,6 +192,7 @@ export class NewChatService {
 
     // retain: true = mantém o último estado no broker
     this.mqttService.publish(this.presenceTopic, presenceMessage, 1, true);
+    this.mqttService.subscribe(`${this.presenceTopicOthers}/#`, () => {}, 1);
 
     console.log(`👤 [${this.userId}] Status: ONLINE`);
   }
@@ -184,8 +206,6 @@ export class NewChatService {
 
     // retain: true = Atualiza última mensagem no broker
     this.mqttService.publish(this.presenceTopic, presenceMessage, 1, true);
-
-    console.log(`👤 [${this.userId}] Status: OFFLINE`);
   }
 
   //✅ Marca como offline
@@ -207,12 +227,15 @@ export class NewChatService {
   // ==========================================================================
 
   private setupPresenceListener(): void {
+    // Captura TODAS as mensagens
     this.mqttService.setGlobalMessageHandler((topic, payload) => {
-      // Captura TODAS as mensagens de presença
-      if (topic.startsWith("presence/")) {
+      //Captura mensagem topic presence
+      if (topic.startsWith(this.presenceTopicOthers)) {
         try {
           const presence = JSON.parse(payload);
-          console.log("AMEMMM", presence);
+          //Se for presenca do propio usuario retorna
+          if (presence.userId === this.userId) return;
+
           this.eventQueue.push({
             type: "presence_update",
             userId: presence.userId,
@@ -228,9 +251,72 @@ export class NewChatService {
           });
         }
       }
-    });
+      // Carregar conversas
+      if (topic.startsWith(this.loadConversation)) {
+        try {
+          const conversarion = JSON.parse(payload);
+          const loadEvent: LoadConversations = {
+            type: "load_conversation",
+            conversations: conversarion.conversations.map((item: any) => ({
+              userId: item.userId,
+              topic: item.topic,
+              chatIndividual: item.chatIndividual,
+              timestamp: item.timestamp,
+            })),
+          };
+          this.eventQueue.push(loadEvent);
+        } catch (error) {
+          this.eventQueue.push({
+            type: "error",
+            error: "Erro ao processar presença",
+            context: { topic, payload, error },
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
 
-    console.log(`📡 [${this.userId}] Monitorando presença: presence/#`);
+      if (topic.startsWith("chat/")) {
+        const message = JSON.parse(payload);
+        if (message.from === this.userId) {
+          return;
+        }
+
+        this.pushEvent({
+          type: "message_received",
+          from: message.from,
+          content: message.content,
+          messageId: message.messageId,
+          chatTopic: message.chatTopic,
+          timestamp: message.timestamp,
+        });
+      }
+    });
+  }
+
+  // ==========================================================================
+  // CARREGAR E SALVAR CONVERSAS E GRUPOS
+  // ==========================================================================
+
+  public setConversations(conversations: LoadConversations): void {
+    const conversation = {
+      type: conversations.type,
+      conversations: conversations.conversations.map((c) => ({
+        userId: c.userId,
+        topic: c.topic,
+        chatIndividual: c.chatIndividual,
+        timestamp: c.timestamp,
+      })),
+    };
+
+    // retain: true = mantém a última versão no broker
+    this.mqttService.publish(this.loadConversation, conversation, 1, true);
+
+    console.log(`👤 [${this.userId}] publicado conversas`, conversation);
+  }
+
+  public cleanConversations(): void {
+    const conversation = "";
+    this.mqttService.publish(this.loadConversation, conversation, 1, true);
   }
 
   // ==========================================================================

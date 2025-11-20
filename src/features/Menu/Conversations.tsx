@@ -4,7 +4,10 @@ import AppTopBar from "../../components/AppTopBar/AppTopBar";
 import ModalPhoneDrawer from "../../components/ModalPhone/ModalPhone";
 import SideAppBar from "../../components/SideAppBar/SideAppBar";
 import { MqttService } from "../../service/MqttService";
-import { NewChatService } from "../../service/NewChatService";
+import {
+  NewChatService,
+  type LoadConversations,
+} from "../../service/NewChatService";
 import { ChatInput } from "../chat/ChatInput/ChatInput";
 import { ChatWindow } from "../chat/ChatWindown/ChatWindown";
 
@@ -50,6 +53,9 @@ export default function Conversation() {
       messages: [{ author: "", TimeStamp: new Date().toISOString(), text: "" }],
     });
 
+  // IDs dos botões na SideAppBar
+  const [buttons, setButtons] = useState<{ id: string; status: string }[]>([]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       const events = newChatService?.pollAllEvents();
@@ -70,19 +76,49 @@ export default function Conversation() {
 
         if (ev.type === "invite_accepted") {
           const accepted = ev as any;
-          setButtons((prev) => [
-            ...prev,
-            { id: accepted.acceptedBy, status: "online" }, // ou qualquer status inicial
-          ]);
-          console.log(`${accepted.acceptedBy}, TÓPICO: ${accepted.chatTopic}`);
-          setConversation((prev) => [
-            ...prev,
-            {
-              id: accepted.acceptedBy,
-              topic: accepted.chatTopic,
-              messages: [],
-            },
-          ]);
+
+          const mappedStateConversations = conversation.map((c) => ({
+            userId: c.id,
+            topic: c.topic,
+            chatIndividual: true, // ou false, depende da sua lógica
+            timestamp: new Date().toISOString(),
+          }));
+
+          const newConversation = {
+            userId: accepted.acceptedBy,
+            topic: accepted.chatTopic,
+            chatIndividual: true,
+            timestamp: new Date().toISOString(),
+          };
+
+          const conversationsToSend = [
+            ...mappedStateConversations,
+            newConversation,
+          ];
+
+          const payload: LoadConversations = {
+            type: "load_conversation",
+            conversations: conversationsToSend,
+          };
+
+          newChatService?.setConversations(payload);
+
+          console.log(
+            `Aceito por: ${accepted.acceptedBy}, TÓPICO: ${accepted.chatTopic}`
+          );
+          console.log("Enviado para salvar:" + payload);
+          // setButtons((prev) => [
+          //   ...prev,
+          //   { id: accepted.acceptedBy, status: "online" }, // ou qualquer status inicial
+          // ]);
+          // setConversation((prev) => [
+          //   ...prev,
+          //   {
+          //     id: accepted.acceptedBy,
+          //     topic: accepted.chatTopic,
+          //     messages: [],
+          //   },
+          // ]);
         }
 
         if (ev.type === "message_received") {
@@ -142,13 +178,30 @@ export default function Conversation() {
             );
           }
         }
+
+        if (ev.type === "load_conversation") {
+          console.log("Entrou no load conversation para gerar conversas:", ev);
+          setButtons(() =>
+            ev.conversations.map((c: any) => ({
+              id: c.userId,
+              status: "offline",
+            }))
+          );
+          setConversation((prev) => [
+            ...prev,
+            ...ev.conversations
+              .filter((c: any) => !prev.some((p) => p.id === c.userId))
+              .map((c: any) => ({
+                id: c.userId,
+                topic: c.topic,
+                messages: [],
+              })),
+          ]);
+        }
       }
     }, 500);
     return () => clearInterval(interval);
   }, [newChatService, conversation.find, conversation]);
-
-  // IDs dos botões na SideAppBar
-  const [buttons, setButtons] = useState<{ id: string; status: string }[]>([]);
 
   // Seleciona ou cria conversa
   function loadConversation(id: string) {
@@ -180,6 +233,31 @@ export default function Conversation() {
     await chatService.initialize();
   }
 
+  function setNewConversation(userId: string, topic: string) {
+    const mappedStateConversations = conversation.map((c) => ({
+      userId: c.id,
+      topic: c.topic,
+      chatIndividual: true, // ou false, depende da sua lógica
+      timestamp: new Date().toISOString(),
+    }));
+
+    const newConversation = {
+      userId: userId,
+      topic: topic,
+      chatIndividual: true,
+      timestamp: new Date().toISOString(),
+    };
+
+    const conversationsToSend = [...mappedStateConversations, newConversation];
+
+    const payload: LoadConversations = {
+      type: "load_conversation",
+      conversations: conversationsToSend,
+    };
+
+    newChatService?.setConversations(payload);
+  }
+
   return (
     <>
       <ModalPhoneDrawer
@@ -188,6 +266,7 @@ export default function Conversation() {
         onConfirm={(numberTelephone) => setMyNumberTelephone(numberTelephone)}
       />
       <AppTopBar
+        onCleanCLick={() => newChatService?.cleanConversations()}
         onMenuClick={() => setPositionMenu(!positionMenu)}
         onLoginCLick={() => setVisibleModalPhoneDrawer(true)}
         onDesconectClick={() => newChatService?.setStatusDisconnect()}
@@ -209,7 +288,7 @@ export default function Conversation() {
       />{" "}
       <ChatInput
         chatConversationService={(textmsg) => {
-          if (selectedConversation.id == "0") {
+          if (selectedConversation.id == "0" || selectedConversation.id == "") {
             alert("Necessário selecionar uma conversa para enviar");
             return;
           }
@@ -261,6 +340,7 @@ export default function Conversation() {
             infoAcceptDialog.from
           );
           newChatService.subscribeToChatTopic(topics);
+          setNewConversation(infoAcceptDialog.from, topics);
           setConversation((prev) => [
             ...prev,
             { id: infoAcceptDialog.from, topic: topics, messages: [] },
