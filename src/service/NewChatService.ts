@@ -197,6 +197,10 @@ export class NewChatService {
     console.log(`👤 [${this.userId}] Status: ONLINE`);
   }
 
+  public pingStatusPresence() {
+    this.mqttService.subscribe(`${this.presenceTopicOthers}/#`, () => {}, 1);
+  }
+
   private setOfflineStatus(): void {
     const presenceMessage = {
       userId: this.userId,
@@ -289,6 +293,10 @@ export class NewChatService {
           chatTopic: message.chatTopic,
           timestamp: message.timestamp,
         });
+
+        console.log(
+          `💬 [${this.userId}] Mensagem de ${message.from}: ${message.content}`
+        );
       }
     });
   }
@@ -335,9 +343,6 @@ export class NewChatService {
       case "invite_rejected":
         this.handleInviteRejected(message);
         break;
-      case "message":
-        this.handleChatMessage(message);
-        break;
       default:
         this.pushEvent({
           type: "error",
@@ -345,6 +350,7 @@ export class NewChatService {
           context: { message },
           timestamp: new Date().toISOString(),
         });
+        console.log(message);
         break;
     }
   }
@@ -480,19 +486,7 @@ export class NewChatService {
    * Se inscreve em um tópico de chat para receber mensagens
    */
   subscribeToChatTopic(chatTopic: string): void {
-    this.mqttService.subscribe(chatTopic, (_topic, payload) => {
-      try {
-        const message: ChatMessage = JSON.parse(payload);
-        this.handleChatMessage(message);
-      } catch (error) {
-        this.pushEvent({
-          type: "error",
-          error: "Erro ao processar mensagem de chat",
-          context: { chatTopic, payload, error },
-          timestamp: new Date().toISOString(),
-        });
-      }
-    });
+    this.mqttService.subscribe(chatTopic, () => {}, 1);
 
     this.pushEvent({
       type: "chat_subscribed",
@@ -501,29 +495,6 @@ export class NewChatService {
     });
 
     console.log(`🔔 [${this.userId}] Inscrito no chat: ${chatTopic}`);
-  }
-
-  /*
-   * Processa mensagem recebida em um chat
-   */
-  private handleChatMessage(message: ChatMessage): void {
-    // Ignora mensagens enviadas por mim mesmo
-    if (message.from === this.userId) {
-      return;
-    }
-
-    console.log(
-      `💬 [${this.userId}] Mensagem de ${message.from}: ${message.content}`
-    );
-
-    this.pushEvent({
-      type: "message_received",
-      from: message.from,
-      content: message.content,
-      messageId: message.messageId,
-      chatTopic: message.chatTopic,
-      timestamp: message.timestamp,
-    });
   }
 
   // ==========================================================================
@@ -547,7 +518,7 @@ export class NewChatService {
       timestamp: new Date().toISOString(),
     };
 
-    this.mqttService.publish(chatTopic, message);
+    this.mqttService.publish(chatTopic, message, 1);
 
     console.log(`📨 [${this.userId}] Mensagem enviada para ${chatTopic}`);
 

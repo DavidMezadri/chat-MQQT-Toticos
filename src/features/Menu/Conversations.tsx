@@ -107,18 +107,6 @@ export default function Conversation() {
             `Aceito por: ${accepted.acceptedBy}, TÓPICO: ${accepted.chatTopic}`
           );
           console.log("Enviado para salvar:" + payload);
-          // setButtons((prev) => [
-          //   ...prev,
-          //   { id: accepted.acceptedBy, status: "online" }, // ou qualquer status inicial
-          // ]);
-          // setConversation((prev) => [
-          //   ...prev,
-          //   {
-          //     id: accepted.acceptedBy,
-          //     topic: accepted.chatTopic,
-          //     messages: [],
-          //   },
-          // ]);
         }
 
         if (ev.type === "message_received") {
@@ -126,31 +114,54 @@ export default function Conversation() {
             (c) => c.id === ev.from
           );
           if (existingConversation) {
-            if (existingConversation) {
-              const newMessage = {
-                author: ev.from,
-                TimeStamp: ev.timestamp,
-                text: ev.content,
-              };
+            const newMessage = {
+              author: ev.from,
+              TimeStamp: ev.timestamp,
+              text: ev.content,
+            };
 
-              setConversation((prev) =>
-                prev.map((c) =>
-                  c.id === ev.from
-                    ? { ...c, messages: [...(c.messages ?? []), newMessage] }
-                    : c
-                )
-              );
+            setConversation((prev) =>
+              prev.map((c) =>
+                c.id === ev.from
+                  ? { ...c, messages: [...(c.messages ?? []), newMessage] }
+                  : c
+              )
+            );
 
-              // Atualiza a conversa atualmente aberta
-              setSelectedConversation((prev) =>
-                prev && prev.id === ev.from
-                  ? {
-                      ...prev,
-                      messages: [...(prev.messages ?? []), newMessage],
-                    }
-                  : prev
-              );
-            }
+            // Atualiza a conversa atualmente aberta
+            setSelectedConversation((prev) =>
+              prev && prev.id === ev.from
+                ? {
+                    ...prev,
+                    messages: [...(prev.messages ?? []), newMessage],
+                  }
+                : prev
+            );
+          } else {
+            //Se chegar mensagem e nao existir, cria nova
+            const newMessage = {
+              author: ev.from,
+              TimeStamp: ev.timestamp,
+              text: ev.content,
+            };
+
+            const newConversation = {
+              id: ev.from,
+              topic: ev.chatTopic,
+              messages: [newMessage],
+            };
+
+            // adiciona botão da conversa
+            setButtons((prev) => [
+              ...prev,
+              {
+                id: ev.from,
+                status: "online",
+              },
+            ]);
+
+            // adiciona conversa nova
+            setConversation((prev) => [...prev, newConversation]);
           }
         }
 
@@ -162,7 +173,7 @@ export default function Conversation() {
           const exists = buttons.some((btn) => btn.id === userId);
 
           if (exists) {
-            console.log("👀 Atualizando presença do usuário:", userId);
+            //console.log("👀 Atualizando presença do usuário:", userId);
 
             setButtons((prev) =>
               prev.map((btn) =>
@@ -172,10 +183,7 @@ export default function Conversation() {
               )
             );
           } else {
-            console.log(
-              "🔍 Presence de alguém que não tem conversa aberta:",
-              userId
-            );
+            //console.log("🔍 Presence de alguém que não tem conversa aberta:",userId);
           }
         }
 
@@ -199,7 +207,9 @@ export default function Conversation() {
           ]);
         }
       }
-    }, 500);
+
+      newChatService?.pingStatusPresence(); //Fica inscrevendo nos status para obter os status
+    }, 1000);
     return () => clearInterval(interval);
   }, [newChatService, conversation.find, conversation]);
 
